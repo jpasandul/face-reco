@@ -34,6 +34,7 @@ yarn-error.log*
 # Specific files from your current ignore list
 /error.txt
 /photo_*.jpg
+/.jpg
 
 # Compiled files
 *.com

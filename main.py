@@ -44,18 +44,30 @@ class CameraApp:
         self.label = tk.Label(root)
         self.label.pack()
         
+        # Create a frame for buttons and status
+        self.button_frame = tk.Frame(root)
+        self.button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
         # Create buttons
-        self.capture_button = tk.Button(root, text="Capture Image", command=self.capture_image)
+        self.capture_button = tk.Button(self.button_frame, text="Capture Image", command=self.capture_image)
         self.capture_button.pack(side=tk.LEFT)
         
-        self.record_button = tk.Button(root, text="Start/Stop Recording", command=self.toggle_recording)
+        self.record_button = tk.Button(self.button_frame, text="Start/Stop Recording", command=self.toggle_recording)
         self.record_button.pack(side=tk.LEFT)
         
-        self.close_button = tk.Button(root, text="Close", command=self.close_app)
-        self.close_button.pack(side=tk.LEFT)
+        # Add status label
+        self.status_label = tk.Label(self.button_frame, text="No face detected", fg="red")
+        self.status_label.pack(side=tk.LEFT, padx=10)
+        
+        self.close_button = tk.Button(self.button_frame, text="Close", command=self.close_app)
+        self.close_button.pack(side=tk.RIGHT)
         
         # Variables
         self.is_recording = False
+        self.face_detected_time = None
+        self.is_capture_pending = False
+        self.waiting_for_next = False  # New flag for next person sequence
+        self.countdown_active = False  # New flag for countdown
         self.update_camera_feed()
     
     def add_timestamp(self, image_path):
@@ -94,19 +106,34 @@ class CameraApp:
             scale_x = frame.shape[1] / small_frame.shape[1]
             scale_y = frame.shape[0] / small_frame.shape[0]
             
-            # Draw rectangle around faces and check if we should capture
             current_time = time.time()
+            
+            if len(faces) > 0 and not self.waiting_for_next and not self.countdown_active:
+                if not self.face_detected_time and not self.is_capture_pending:
+                    # Face just detected, start the timer
+                    self.face_detected_time = current_time
+                    self.status_label.config(text="Face detected - Please stay still", fg="orange")
+                
+                if self.face_detected_time and not self.is_capture_pending:
+                    time_since_detection = current_time - self.face_detected_time
+                    if time_since_detection >= 2:
+                        self.is_capture_pending = True
+                        self.status_label.config(text="Capturing image...", fg="blue")
+                        self.capture_image_auto()
+                        self.face_detected_time = None
+            else:
+                if not self.waiting_for_next and not self.countdown_active:
+                    # Reset detection time if face is lost
+                    self.face_detected_time = None
+                    self.is_capture_pending = False
+                    self.status_label.config(text="No face detected", fg="red")
+            
             for (x, y, w, h) in faces:
                 # Scale coordinates back to original size
                 x, y, w, h = int(x * scale_x), int(y * scale_y), int(w * scale_x), int(h * scale_y)
                 
                 # Draw rectangle around face
                 cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-                
-                # Check if we should capture an image
-                if current_time - self.last_capture_time >= self.capture_interval:
-                    self.capture_image_auto()
-                    self.last_capture_time = current_time
             
             # Convert frame for display
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -116,6 +143,15 @@ class CameraApp:
             self.label.image = self.photo
         self.root.after(10, self.update_camera_feed)
     
+    def start_countdown(self, count):
+        if count > 0:
+            self.status_label.config(text=f"Next image capture starting in {count} seconds", fg="orange")
+            self.root.after(1000, lambda: self.start_countdown(count - 1))
+        else:
+            self.countdown_active = False
+            self.waiting_for_next = False
+            self.status_label.config(text="Ready for next person", fg="green")
+
     def capture_image_auto(self):
         if self.is_recording:
             return
@@ -123,9 +159,23 @@ class CameraApp:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"photo_{timestamp}.jpg"
         self.picam2.capture_file(filename)
-        self.add_timestamp(filename)
-        print(f"Face detected - Picture saved as {filename}")  # Using print instead of messagebox for automatic capture
+        print(f"Image saved as {filename}")
+        self.status_label.config(text=f"Image captured: {filename}", fg="green")
         
+        # Start the sequence of messages and timers
+        def show_next_person():
+            self.waiting_for_next = True
+            self.status_label.config(text="Next person please", fg="blue")
+            
+            def start_countdown_sequence():
+                self.countdown_active = True
+                self.start_countdown(5)
+            
+            self.root.after(3000, start_countdown_sequence)  # Show "Next person please" for 3 seconds
+        
+        # Show capture message for 3 seconds, then start next person sequence
+        self.root.after(3000, show_next_person)
+    
     def capture_image(self):
         if self.is_recording:
             messagebox.showinfo("Info", "Please stop recording first!")
