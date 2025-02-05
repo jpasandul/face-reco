@@ -11,7 +11,7 @@ from tkinter import messagebox
 class CameraApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Pi Camera Application")
+        self.root.title("Face Reko App")
         
         # Initialize the camera
         self.picam2 = Picamera2()
@@ -51,11 +51,18 @@ class CameraApp:
         self.detection_indicator.pack(side=tk.LEFT)
         self.indicator_dot = self.detection_indicator.create_oval(5, 5, 15, 15, fill='gray')
         
+        # Add detection status text
+        self.detection_status = tk.Label(self.indicator_frame, text="Face Detection: Inactive", fg="gray")
+        self.detection_status.pack(side=tk.LEFT, padx=5)
+        
         # Create button frame
         self.button_frame = tk.Frame(root)
         self.button_frame.pack(fill=tk.X, padx=5)
         
         # Create buttons
+        self.pause_button = tk.Button(self.button_frame, text="Pause Detection", command=self.toggle_detection)
+        self.pause_button.pack(side=tk.LEFT)
+        
         self.capture_button = tk.Button(self.button_frame, text="Capture Image", command=self.capture_image)
         self.capture_button.pack(side=tk.LEFT)
         
@@ -100,9 +107,11 @@ class CameraApp:
         if self.detection_active:
             # Blink green when detection is active
             color = 'green' if self.indicator_state else 'darkgreen'
+            self.detection_status.config(text="Face Detection: Active", fg="green")
         else:
             # Solid gray when detection is paused
             color = 'gray'
+            self.detection_status.config(text="Face Detection: Paused", fg="gray")
             
         self.detection_indicator.itemconfig(self.indicator_dot, fill=color)
         self.indicator_state = not self.indicator_state
@@ -202,6 +211,22 @@ class CameraApp:
     def close_app(self):
         self.picam2.stop()
         self.root.destroy()
+
+    def toggle_detection(self):
+        self.detection_active = not self.detection_active
+        if self.detection_active:
+            self.pause_button.config(text="Pause Detection")
+            self.status_label.config(text="Face detection resumed", fg="green")
+        else:
+            self.pause_button.config(text="Resume Detection")
+            self.status_label.config(text="Face detection paused", fg="orange")
+        
+        # Reset detection variables when pausing
+        if not self.detection_active:
+            self.face_detected_time = None
+            self.is_capture_pending = False
+            self.waiting_for_next = False
+            self.countdown_active = False
 
 if __name__ == "__main__":
     root = tk.Tk()
