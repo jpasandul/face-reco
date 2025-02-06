@@ -198,31 +198,10 @@ class CameraApp:
         # Read the full resolution image
         image = cv2.imread(original_path)
         
-        # Apply initial image enhancements
-        # Denoise the image
-        image = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
-        
-        # Convert to LAB color space for CLAHE
-        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        
-        # Apply CLAHE to L channel
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        l = clahe.apply(l)
-        
-        # Merge channels back
-        lab = cv2.merge((l,a,b))
-        image = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-        
-        # Adjust contrast
-        alpha = 1.3  # Contrast control
-        beta = 0     # Brightness control
-        image = cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
-        
-        # Convert to grayscale for face detection
+        # Convert to grayscale for initial face detection
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-        # Detect faces in the enhanced image
+        # Detect faces in the original image
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
         
         if len(faces) == 0:
@@ -240,23 +219,70 @@ class CameraApp:
         w = min(image.shape[1] - x, int(w * (1 + 2 * padding)))
         h = min(image.shape[0] - y, int(h * (1 + 2 * padding)))
         
-        # Crop the face region
+        # Crop the face region first
         face_color = image[y:y+h, x:x+w]
-        face_gray = gray[y:y+h, x:x+w]
         
-        # Resize both versions to standard size
-        face_color = cv2.resize(face_color, (224, 224))
-        face_gray = cv2.resize(face_gray, (224, 224))
-        
-        # Save both versions
+        # Save paths for processing
         filename = os.path.basename(original_path)
         color_path = os.path.join(self.color_faces_dir, f"color_{filename}")
         gray_path = os.path.join(self.gray_faces_dir, f"gray_{filename}")
         
-        cv2.imwrite(color_path, face_color)
-        cv2.imwrite(gray_path, face_gray)
+        # Start background processing
+        import threading
+        thread = threading.Thread(target=self.process_image_background, 
+                                args=(face_color, color_path, gray_path))
+        thread.start()
         
         return color_path, gray_path
+
+    def process_image_background(self, face_color, color_path, gray_path):
+        try:
+            # Now apply enhancements only to the cropped face
+            # Denoise the cropped image
+            face_color = cv2.fastNlMeansDenoisingColored(face_color, None, 10, 10, 7, 21)
+            
+            # Convert to LAB color space for CLAHE
+            lab = cv2.cvtColor(face_color, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            
+            # Apply CLAHE to L channel
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            l = clahe.apply(l)
+            
+            # Merge channels back
+            lab = cv2.merge((l,a,b))
+            face_color = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+            
+            # Adjust contrast
+            alpha = 1.3  # Contrast control
+            beta = 0     # Brightness control
+            face_color = cv2.convertScaleAbs(face_color, alpha=alpha, beta=beta)
+            
+            # Additional preprocessing from preprocess_image method
+            face_color = cv2.resize(face_color, (224, 224))
+            
+            # Convert to PIL Image for additional enhancements
+            face_color_pil = Image.fromarray(cv2.cvtColor(face_color, cv2.COLOR_BGR2RGB))
+            
+            # Enhance sharpness
+            enhancer = ImageEnhance.Sharpness(face_color_pil)
+            face_color_pil = enhancer.enhance(1.3)  # Increase sharpness by 30%
+            
+            # Convert back to OpenCV format
+            face_color = cv2.cvtColor(np.array(face_color_pil), cv2.COLOR_RGB2BGR)
+            
+            # Create grayscale version from the enhanced color face
+            face_gray = cv2.cvtColor(face_color, cv2.COLOR_BGR2GRAY)
+            face_gray = cv2.resize(face_gray, (224, 224))
+            
+            # Save the processed images
+            cv2.imwrite(color_path, face_color)
+            cv2.imwrite(gray_path, face_gray)
+            
+            print("Background processing completed successfully")
+            
+        except Exception as e:
+            print(f"Error in background processing: {str(e)}")
 
     def preprocess_image(self, image):
         # Resize to standard size (e.g., 224x224 for many ML models)
@@ -297,30 +323,23 @@ class CameraApp:
         print(f"Original image saved as {filename}")
         self.status_label.config(text=f"Image captured: {filename}", fg="green")
         
-        # Process image during countdown
-        def process_and_show_next():
-            self.waiting_for_next = True
-            self.status_label.config(text="Processing image...", fg="blue")
+        # Start processing and countdown immediately
+        processed_paths = self.process_captured_image(original_path)
+        
+        if processed_paths:
+            color_path, gray_path = processed_paths
+            print(f"Processing started for:\nColor: {os.path.basename(color_path)}\nGrayscale: {os.path.basename(gray_path)}")
+            self.status_label.config(text="Processing started...", fg="blue")
             
-            # Process the image
-            processed_paths = self.process_captured_image(original_path)
-            
-            if processed_paths:
-                color_path, gray_path = processed_paths
-                print(f"Processed images saved as:\nColor: {os.path.basename(color_path)}\nGrayscale: {os.path.basename(gray_path)}")
-                self.status_label.config(text="Next person please", fg="blue")
-            else:
-                print("Failed to process image - no face detected")
-                self.status_label.config(text="Processing failed - no face detected", fg="red")
-            
+            # Start countdown immediately
             def start_countdown_sequence():
                 self.countdown_active = True
                 self.start_countdown(5)
             
-            self.root.after(3000, start_countdown_sequence)
-        
-        # Show capture message for 3 seconds, then start processing
-        self.root.after(3000, process_and_show_next)
+            self.root.after(2000, start_countdown_sequence)
+        else:
+            print("Failed to detect face")
+            self.status_label.config(text="Failed to detect face", fg="red")
 
     def capture_image(self):
         # Manual capture should also use the same processing

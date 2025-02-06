@@ -53,3 +53,20 @@ yarn-error.log*
 *.rar
 *.tar
 *.zip
+
+# Ignore contents of image directories but keep the directories themselves
+originals/*
+!originals/.gitkeep
+
+pre-processed-data/color/*
+!pre-processed-data/color/.gitkeep
+
+pre-processed-data/grayscale/*
+!pre-processed-data/grayscale/.gitkeep
+
+# Common Python ignores
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
