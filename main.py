@@ -8,11 +8,25 @@ import numpy as np
 import tkinter as tk
 from tkinter import messagebox
 import os
+from azure.storage.blob import BlobServiceClient
+from azure.iot.device import IoTHubDeviceClient, Message
+from dotenv import load_dotenv
 
 class CameraApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Face Reko App")
+        
+        # Load environment variables from .env
+        load_dotenv()
+        # Setup Azure Blob Storage client from secrets in the environment
+        self.azure_storage_connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        self.azure_blob_container = os.getenv("AZURE_BLOB_CONTAINER", "face-images")
+        self.blob_service_client = BlobServiceClient.from_connection_string(self.azure_storage_connection_string)
+        self.container_client = self.blob_service_client.get_container_client(self.azure_blob_container)
+        
+        # Setup Azure IoT Hub client from secrets in the environment
+        self.iot_client = IoTHubDeviceClient.create_from_connection_string(os.getenv("AZURE_IOT_DEVICE_CONNECTION_STRING"))
         
         # Initialize the camera
         self.picam2 = Picamera2()
@@ -281,6 +295,17 @@ class CameraApp:
             
             print("Background processing completed successfully")
             
+            # --- New Code: Upload and notify Azure ---
+            # Upload the color processed image to Azure Blob storage
+            color_blob_url = self.upload_to_blob(color_path)
+            print(f"Uploaded to blob storage. URL: {color_blob_url}")
+
+            # Send a message to Azure IoT Hub with the blob URL
+            message = Message(f'{{"blob_url": "{color_blob_url}"}}')
+            self.iot_client.send_message(message)
+            print("IoT Hub message sent.")
+            # ------------------------------------------
+            
         except Exception as e:
             print(f"Error in background processing: {str(e)}")
 
@@ -387,6 +412,13 @@ class CameraApp:
             self.is_capture_pending = False
             self.waiting_for_next = False
             self.countdown_active = False
+
+    def upload_to_blob(self, local_path):
+        blob_name = os.path.basename(local_path)
+        blob_client = self.container_client.get_blob_client(blob=blob_name)
+        with open(local_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        return blob_client.url
 
 if __name__ == "__main__":
     root = tk.Tk()

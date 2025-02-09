@@ -33,6 +33,7 @@ yarn-error.log*
 
 # Specific files from your current ignore list
 /error.txt
+/keys.txt
 /photo_*.jpg
 /.jpg
 
@@ -70,3 +71,4 @@ __pycache__/
 *$py.class
 .env
 venv/
+myenv/
