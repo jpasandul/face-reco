@@ -1,0 +1,14 @@
+{
+  "bindings": [
+    {
+      "name": "myblob",
+      "type": "blobTrigger",
+      "direction": "in",
+      "path": "face-images/{name}",
+      "connection": "AzureWebJobsStorage"
+    }
+  ]
+
+
+  
+} 
